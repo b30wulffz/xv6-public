@@ -837,6 +837,15 @@ set_priority(int new_priority, int pid){
   acquire(&ptable.lock);
   struct proc * p;
   int oldPriority = -1;
+
+  // when priority is not in the range [0,100]
+  if(new_priority < 0){
+    new_priority = 0;
+  }
+  else if(new_priority > 100){
+    new_priority = 100;
+  }
+
   // cprintf("%d %d\n", new_priority, pid);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->state != UNUSED){
