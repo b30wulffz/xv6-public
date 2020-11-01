@@ -12,7 +12,7 @@ int main(int argc, char *argv[]){
         int new_priority = atoi(argv[1]);
         int pid = atoi(argv[2]);
         if(argv[2][0] == '-'){
-            printf(1, "Error, Process id starts from 0.\n");
+            printf(1, "Error, Process id should be positive.\n");
             printf(1, "Priority is not updated.\n");
         }
         else{

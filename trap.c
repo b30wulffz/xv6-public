@@ -112,7 +112,13 @@ trap(struct trapframe *tf)
       // sending the process to the next queue
       if(myproc()->cur_q < 4){
         myproc()->cur_q++;
+        #ifdef BONUS
+          // for bonus part
+          cprintf("%d,%d,%d,Demoted\n", myproc()->pid, myproc()->cur_q, ticks);
+          // cprintf("-> [%d] %d %d (Demoted)\n", myproc()->pid, myproc()->cur_q, ticks);
+        #endif
       }
+      
       yield();
     }
     else{

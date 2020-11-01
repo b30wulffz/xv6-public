@@ -59,6 +59,8 @@ struct proc {
   int q[5];                    // Number of ticks the process has received at each of the 5 queues
   int timeslice;               // Timeslice for mlfq
   int position_priority;       // Position in each queue
+  int io;                      // For handling IO
+  int tickflag;                // Flag for handling run time if scheduler picks the process in the same tick
 };
 
 struct procQueue {
