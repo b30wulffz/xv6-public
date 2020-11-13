@@ -16,7 +16,7 @@ struct {
 static struct proc *initproc;
 
 #ifdef MLFQ
-struct procQueue proc_queue[5];
+  struct procQueue proc_queue[5];
 #endif
 
 int nextpid = 1;
@@ -31,11 +31,11 @@ pinit(void)
   initlock(&ptable.lock, "ptable");
 
   #ifdef MLFQ
-  int i;
-  for(i=0; i<5; i++){
-    proc_queue[i].timeslice_cutoff = (1 << i);
-    proc_queue[i].largest_position = 0;
-  }
+    int i;
+    for(i=0; i<5; i++){
+      proc_queue[i].timeslice_cutoff = (1 << i);
+      proc_queue[i].largest_position = 0;
+    }
   #endif
 }
 
@@ -137,10 +137,19 @@ found:
   p->timeslice = 0;
   p->position_priority = 0;
 
+  // flags
+  p->io = 0;
+  p->tickflag = -1;
+
   #ifdef MLFQ
-  p->cur_q = 0;
+    p->cur_q = 0;
+    #ifdef BONUS
+      // For bonus part
+      cprintf("%d,%d,%d,Init\n", p->pid, p->cur_q, ticks);
+      // cprintf("-> [%d] %d %d (Init)\n", p->pid, p->cur_q, ticks);
+    #endif
   #else
-  p->cur_q = -1;
+    p->cur_q = -1;
   #endif
 
   for(int i=0; i<5; i++){
@@ -297,6 +306,14 @@ exit(void)
         wakeup1(initproc);
     }
   }
+  
+  #ifdef MLFQ
+    #ifdef BONUS
+      // for bonus part
+      cprintf("%d,%d,%d,Exit\n", curproc->pid, curproc->cur_q, ticks);
+      // cprintf("-> [%d] %d %d (Exit)\n", curproc->pid, curproc->cur_q, ticks);
+    #endif
+  #endif
 
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
@@ -370,7 +387,7 @@ waitx(int* wtime, int* rtime)
         // Found one.
         // cprintf("->%d %d %d\n", p->ctime, p->etime, p->rtime);
         *rtime = p->rtime;
-        *wtime = p->etime - p->ctime - p->rtime; // total wait time
+        *wtime = p->etime - p->ctime - p->rtime + 1; // total wait time // adding 1 as when process is initiated, picked by scheduler and ends in the same tick, then run time will be 1.
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
@@ -432,6 +449,14 @@ scheduler(void)
         
         // custom updates
         p->n_run++;
+        p->tmp_wtime = 0;
+        p->io = 0;
+
+        // for handling runtime in 1 tick when process is picked up by scheduler
+        if(p->tickflag != ticks){
+          p->tickflag = ticks;
+          p->rtime++;
+        }
 
         swtch(&(c->scheduler), p->context);
         switchkvm();
@@ -473,6 +498,15 @@ scheduler(void)
         
         // custom updates
         earliestProcess->n_run++;
+        earliestProcess->tmp_wtime = 0;
+        earliestProcess->io = 0;
+        // cprintf("Pid: %d running.\n", earliestProcess->pid);
+
+        // for handling runtime in 1 tick when process is picked up by scheduler
+        if(earliestProcess->tickflag != ticks){
+          earliestProcess->tickflag = ticks;
+          earliestProcess->rtime++;
+        }
 
         swtch(&(c->scheduler), earliestProcess->context);
         switchkvm();
@@ -515,6 +549,14 @@ scheduler(void)
         
         // custom updates
         highestPriorityProcess->n_run++;
+        highestPriorityProcess->tmp_wtime = 0;
+        highestPriorityProcess->io = 0;
+
+        // for handling runtime in 1 tick when process is picked up by scheduler
+        if(highestPriorityProcess->tickflag != ticks){
+          highestPriorityProcess->tickflag = ticks;
+          highestPriorityProcess->rtime++;
+        }
 
         swtch(&(c->scheduler), highestPriorityProcess->context);
         switchkvm();
@@ -563,6 +605,15 @@ scheduler(void)
         // custom updates
         highestPriorityProcess->n_run++;
         highestPriorityProcess->tmp_wtime = 0;
+        highestPriorityProcess->io = 0;
+
+        // for handling runtime in 1 tick when process is picked up by scheduler
+        if(highestPriorityProcess->tickflag != ticks){
+          highestPriorityProcess->tickflag = ticks;
+          highestPriorityProcess->rtime++;
+          // number of ticks a process received in its queue
+          highestPriorityProcess->q[highestPriorityProcess->cur_q]++;
+        }
 
         swtch(&(c->scheduler), highestPriorityProcess->context);
         switchkvm();
@@ -658,10 +709,16 @@ sleep(void *chan, struct spinlock *lk)
   }
 
   #ifdef MLFQ
-  // Process goes to sleep if it waits for io
-  // Hence it is pushed at the end of queue i.e. the maximum value of position_priority is allocated 
-  p->position_priority = 1 + proc_queue[p->cur_q].largest_position;
-  proc_queue[p->cur_q].largest_position = p->position_priority;
+    // Process goes to sleep if it waits for io
+    // Hence it is pushed at the end of queue i.e. the maximum value of position_priority is allocated 
+    if(p->io == 0){
+      p->io = 1;
+      p->position_priority = 1 + proc_queue[p->cur_q].largest_position;
+      proc_queue[p->cur_q].largest_position = p->position_priority;
+      // for bonus part
+      // cprintf("%d,%d,%d,IO\n", p->pid, p->cur_q, ticks);
+      // cprintf("-> [%d] %d %d (IO)\n", p->pid, p->cur_q, ticks);
+    }
   #endif
 
   // Go to sleep.
@@ -770,10 +827,11 @@ void updateruntime(void){
     if(p->state == RUNNING){
       p->rtime++;
       p->tmp_wtime = 0;
+      p->tickflag = ticks;
 
       #ifdef MLFQ
-      // number of ticks a process received in its queue
-      p->q[p->cur_q]++;
+        // number of ticks a process received in its queue
+        p->q[p->cur_q]++;
       #endif
     }
     else if(p->state != UNUSED){
@@ -781,20 +839,27 @@ void updateruntime(void){
     }
      
     #ifdef MLFQ
-    if(p->state != UNUSED){
-      // for aging
-      if(p->tmp_wtime > AGE_CUTOFF){
-        // priority is increased
-        if(p->cur_q != 0){
-          // change in queue
-          p->cur_q--;
-          // to push to end
-          p->position_priority = 1+proc_queue[p->cur_q].largest_position;
-          proc_queue[p->cur_q].largest_position = p->position_priority;
-          p->tmp_wtime = 0;
+      if(p->state != UNUSED){
+        // for aging
+        if(p->tmp_wtime > AGE_CUTOFF){
+          // priority is increased
+          if(p->cur_q != 0){
+            // change in queue
+            p->cur_q--;
+            // to push to end
+            p->position_priority = 1+proc_queue[p->cur_q].largest_position;
+            proc_queue[p->cur_q].largest_position = p->position_priority;
+            p->tmp_wtime = 0;
+
+            #ifdef BONUS
+              // for bonus part
+              cprintf("%d,%d,%d,Aging\n", p->pid, p->cur_q, ticks);
+              // cprintf("-> [%d] %d %d (Aging)\n", p->pid, p->cur_q, ticks);
+            #endif
+          }
+
         }
       }
-    }
     #endif
   }
   release(&ptable.lock);
@@ -837,6 +902,15 @@ set_priority(int new_priority, int pid){
   acquire(&ptable.lock);
   struct proc * p;
   int oldPriority = -1;
+
+  // when priority is not in the range [0,100]
+  if(new_priority < 0){
+    new_priority = 0;
+  }
+  else if(new_priority > 100){
+    new_priority = 100;
+  }
+
   // cprintf("%d %d\n", new_priority, pid);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->state != UNUSED){
